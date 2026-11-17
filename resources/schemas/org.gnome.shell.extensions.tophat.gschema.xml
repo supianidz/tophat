@@ -33,6 +33,11 @@
       <summary>How to visualize the CPU monitor</summary>
       <description>How to visualize the CPU monitor</description>
     </key>
+    <key name="gpu-display" enum="org.gnome.shell.extensions.tophat.visualization">
+      <default>'chart'</default>
+      <summary>How to visualize the GPU monitor</summary>
+      <description>How to visualize the GPU monitor</description>
+    </key>
     <key name="mem-display" enum="org.gnome.shell.extensions.tophat.visualization">
       <default>'chart'</default>
       <summary>How to visualize the memory monitor</summary>
@@ -67,6 +72,11 @@
       <default>true</default>
       <summary>Show the CPU monitor</summary>
       <description>Show the CPU monitor.</description>
+    </key>
+    <key name="show-gpu" type="b">
+      <default>true</default>
+      <summary>Show the GPU monitor</summary>
+      <description>Show the GPU monitor.</description>
     </key>
     <key name="show-mem" type="b">
       <default>true</default>

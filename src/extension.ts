@@ -16,15 +16,17 @@
 // You should have received a copy of the GNU General Public License
 // along with TopHat. If not, see <https://www.gnu.org/licenses/>.
 
+import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import { File } from './file.js';
-import { Vitals, CpuModel } from './vitals.js';
+import { Vitals, CpuModel, GpuModel } from './vitals.js';
 import { TopHatContainer } from './container.js';
 import { CpuMonitor } from './cpu.js';
+import { GpuMonitor } from './gpu.js';
 import { MemMonitor } from './mem.js';
 import { DiskMonitor } from './disk.js';
 import { NetMonitor } from './net.js';
@@ -48,7 +50,8 @@ export default class TopHat extends Extension {
     this.gsettings = this.getSettings();
     const f = new File('/proc/cpuinfo');
     const cpuModel = this.parseCpuOverview(f.readSync());
-    this.vitals = new Vitals(cpuModel, this.gsettings);
+    const gpuModel = this.parseGpuOverview();
+    this.vitals = new Vitals(cpuModel, this.gsettings, gpuModel);
     this.vitals.start();
     this.addToPanel();
     const id = this.gsettings.connect('changed::position-in-panel', () => {
@@ -166,6 +169,184 @@ export default class TopHat extends Extension {
     return new CpuModel(model, cores, cpus.size, tempMonitors);
   }
 
+  private parseGpuOverview(): GpuModel {
+    // 1. Check NVIDIA GPU via nvidia-smi if available
+    if (GLib.find_program_in_path('nvidia-smi')) {
+      try {
+        const [ok, stdout, , exitStatus] = GLib.spawn_command_line_sync(
+          'nvidia-smi --query-gpu=name --format=csv,noheader'
+        );
+        if (ok && exitStatus === 0 && stdout) {
+          const outStr = new TextDecoder('utf-8').decode(stdout).trim();
+          if (outStr) {
+            const name = outStr.split('\n')[0].trim();
+            return new GpuModel(
+              name,
+              'nvidia',
+              'nvidia',
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              true
+            );
+          }
+        }
+      } catch {
+        // Fall back to sysfs
+      }
+    }
+
+    // 2. Check DRM cards in sysfs
+    const drmBase = '/sys/class/drm';
+    const drmDir = new File(drmBase);
+    if (drmDir.exists()) {
+      const cards = drmDir
+        .listSync()
+        .filter((c) => /^card\d+$/.test(c))
+        .sort();
+
+      for (const card of cards) {
+        const devPath = `${drmBase}/${card}/device`;
+        const devDir = new File(devPath);
+        if (!devDir.exists()) {
+          continue;
+        }
+
+        let driverName = '';
+        try {
+          const symlink = Gio.File.new_for_path(`${devPath}/driver`).query_info(
+            Gio.FILE_ATTRIBUTE_STANDARD_SYMLINK_TARGET,
+            Gio.FileQueryInfoFlags.NONE,
+            null
+          );
+          const target = symlink.get_symlink_target();
+          if (target) {
+            driverName = target.split('/').pop() || '';
+          }
+        } catch {
+          // ignore
+        }
+
+        let busyFile: string | null = null;
+        if (new File(`${devPath}/gpu_busy_percent`).exists()) {
+          busyFile = `${devPath}/gpu_busy_percent`;
+        }
+
+        let vramUsedFile: string | null = null;
+        let vramTotalFile: string | null = null;
+        if (new File(`${devPath}/mem_info_vram_total`).exists()) {
+          vramUsedFile = `${devPath}/mem_info_vram_used`;
+          vramTotalFile = `${devPath}/mem_info_vram_total`;
+        } else if (new File(`${devPath}/mem_info_gtt_total`).exists()) {
+          vramUsedFile = `${devPath}/mem_info_gtt_used`;
+          vramTotalFile = `${devPath}/mem_info_gtt_total`;
+        }
+
+        let tempFile: string | null = null;
+        let powerFile: string | null = null;
+        let freqFile: string | null = null;
+
+        const hwmonBase = `${devPath}/hwmon`;
+        const hwmonDir = new File(hwmonBase);
+        if (hwmonDir.exists()) {
+          const hwmons = hwmonDir.listSync();
+          for (const h of hwmons) {
+            const hPath = `${hwmonBase}/${h}`;
+            if (new File(`${hPath}/temp1_input`).exists()) {
+              tempFile = `${hPath}/temp1_input`;
+            }
+            if (new File(`${hPath}/power1_average`).exists()) {
+              powerFile = `${hPath}/power1_average`;
+            } else if (new File(`${hPath}/power1_input`).exists()) {
+              powerFile = `${hPath}/power1_input`;
+            }
+            if (new File(`${hPath}/freq1_input`).exists()) {
+              freqFile = `${hPath}/freq1_input`;
+            }
+            if (tempFile) {
+              break;
+            }
+          }
+        }
+
+        if (
+          busyFile ||
+          driverName === 'amdgpu' ||
+          driverName === 'radeon' ||
+          driverName === 'i915' ||
+          driverName === 'xe'
+        ) {
+          let name = 'Graphics Processor';
+          try {
+            const [ok, stdout] = GLib.spawn_command_line_sync('lspci');
+            if (ok && stdout) {
+              const outStr = new TextDecoder('utf-8').decode(stdout);
+              for (const line of outStr.split('\n')) {
+                if (
+                  /vga compatible controller|3d controller|display controller/i.test(
+                    line
+                  )
+                ) {
+                  const parts = line.split(/controller:\s*/i);
+                  if (parts[1]) {
+                    name = parts[1].replace(/\(rev.*?\)/, '').trim();
+                    break;
+                  }
+                }
+              }
+            }
+          } catch {
+            // ignore
+          }
+
+          if (name === 'Graphics Processor') {
+            if (driverName === 'amdgpu' || driverName === 'radeon') {
+              name = 'AMD Radeon Graphics';
+            } else if (driverName === 'i915' || driverName === 'xe') {
+              name = 'Intel Graphics';
+            }
+          }
+
+          const type: 'amd' | 'intel' | 'generic' =
+            driverName === 'amdgpu' || driverName === 'radeon'
+              ? 'amd'
+              : driverName === 'i915' || driverName === 'xe'
+                ? 'intel'
+                : 'generic';
+
+          return new GpuModel(
+            name,
+            driverName,
+            type,
+            busyFile,
+            vramUsedFile,
+            vramTotalFile,
+            tempFile,
+            powerFile,
+            freqFile,
+            false
+          );
+        }
+      }
+    }
+
+    return new GpuModel(
+      'No GPU detected',
+      '',
+      'generic',
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      false
+    );
+  }
+
   private addToPanel() {
     if (!this.gsettings) {
       console.warn('[TopHat] error in addToPanel(): gsettings does not exist');
@@ -174,6 +355,7 @@ export default class TopHat extends Extension {
     this.container?.destroy();
     this.container = new TopHatContainer(0.5, 'TopHat');
     this.container.addMonitor(new CpuMonitor(this.metadata, this.gsettings));
+    this.container.addMonitor(new GpuMonitor(this.metadata, this.gsettings));
     this.container.addMonitor(new MemMonitor(this.metadata, this.gsettings));
     this.container.addMonitor(new DiskMonitor(this.metadata, this.gsettings));
     this.container.addMonitor(new NetMonitor(this.metadata, this.gsettings));
@@ -194,6 +376,7 @@ export default class TopHat extends Extension {
 
     // Trigger notifications for properties that were set during init and will not change
     this.vitals?.notify('cpu-model');
+    this.vitals?.notify('gpu-model');
     this.vitals?.notify('summary-interval');
   }
 

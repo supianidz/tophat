@@ -1,7 +1,7 @@
 {
   "uuid": "tophat@fflewddur.github.io",
   "name": "TopHat",
-  "description": "View CPU, memory, disk, and network activity in the GNOME top bar.",
+  "description": "View CPU, GPU, memory, disk, and network activity in the GNOME top bar.",
   "version": 24,
   "shell-version": ["45", "46", "47", "48", "49", "50"],
   "url": "https://github.com/fflewddur/tophat",

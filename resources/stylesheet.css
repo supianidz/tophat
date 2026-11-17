@@ -1,3 +1,22 @@
+.tophat-monitor,
+.tophat-panel-usage,
+.tophat-menu-grid,
+.tophat-menu-header,
+.tophat-menu-subheader,
+.tophat-menu-label,
+.tophat-menu-value,
+.tophat-menu-details,
+.tophat-menu-uptime,
+.tophat-menu-cmd-name,
+.tophat-menu-cmd-usage,
+.tophat-menu-cmd-activity,
+.tophat-chart-label,
+.tophat-chart-label-then,
+.tophat-chart-label-now,
+.tophat-tooltip > StLabel {
+  font-family: 'Inter', sans-serif;
+}
+
 .tophat-panel-icon {
   margin: 0 6px 0 0;
   padding: 0;
@@ -83,11 +102,10 @@
 
 .tophat-menu-header {
   text-align: center;
-  font-weight: 600;
+  font-weight: bold;
   font-size: 0.9em;
-  letter-spacing: 0.65px;
   padding: 0.5em;
-  color: #bbb;
+  color: #ccc;
 }
 
 .tophat-menu-subheader {

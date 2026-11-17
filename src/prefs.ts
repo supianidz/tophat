@@ -39,6 +39,7 @@ export default class TopHatPrefs extends ExtensionPreferences {
 
       window.add(this.buildGeneralPage());
       window.add(this.buildCpuPage());
+      window.add(this.buildGpuPage());
       window.add(this.buildMemPage());
       window.add(this.buildDiskPage());
       window.add(this.buildNetPage());
@@ -155,6 +156,28 @@ export default class TopHatPrefs extends ExtensionPreferences {
       'cpu-normalize-proc-use',
       group
     );
+
+    return page;
+  }
+
+  private buildGpuPage() {
+    const page = new Adw.PreferencesPage({
+      title: _('GPU'),
+      iconName: 'gpu-icon-symbolic',
+    });
+
+    const group = new Adw.PreferencesGroup({ title: _('GPU') });
+    page.add(group);
+
+    // Enable
+    this.addActionRow(_('Show the GPU monitor'), 'show-gpu', group);
+
+    // Visualization
+    const choices = new Gtk.StringList();
+    choices.append(_('Usage meter'));
+    choices.append(_('Numeric value'));
+    choices.append(_('Both meter and value'));
+    this.addComboRow(_('Show as'), choices, 'gpu-display', group);
 
     return page;
   }
